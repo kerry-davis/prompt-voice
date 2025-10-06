@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Voice Streaming Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.recording {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin: 30px 0;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-connect {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .btn-connect:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        .btn-record {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .btn-record:hover:not(:disabled) {
+            background-color: #1e7e34;
+        }
+
+        .btn-stop {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .btn-stop:hover:not(:disabled) {
+            background-color: #c82333;
+        }
+
+        .btn-disconnect {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .btn-disconnect:hover:not(:disabled) {
+            background-color: #545b62;
+        }
+
+        .btn-cancel {
+            background-color: #fd7e14;
+            color: white;
+        }
+
+        .btn-cancel:hover:not(:disabled) {
+            background-color: #e8690b;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .transcript {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            min-height: 60px;
+        }
+
+        .transcript.partial {
+            border-left: 4px solid #ffc107;
+        }
+
+        .transcript.final {
+            border-left: 4px solid #28a745;
+        }
+
+        .logs {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        .log-entry {
+            margin: 5px 0;
+            padding: 2px 0;
+        }
+
+        .log-info {
+            color: #17a2b8;
+        }
+
+        .log-error {
+            color: #dc3545;
+        }
+
+        .log-success {
+            color: #28a745;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #495057;
+        }
+
+        .stat-label {
+            color: #6c757d;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Real-time Voice Streaming Demo</h1>
+        <p style="text-align: center; color: #6c757d; margin-bottom: 30px;">
+            Phase 1: AudioWorklet PCM streaming with WebSocket
+        </p>
+
+        <!-- Status Display -->
+        <div id="status" class="status disconnected">
+            Disconnected
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="controls">
+            <button id="btnConnect" class="btn-connect">Connect</button>
+            <button id="btnRecord" class="btn-record" disabled>Start Recording</button>
+            <button id="btnStop" class="btn-stop" disabled>Stop Recording</button>
+            <button id="btnCancel" class="btn-cancel" disabled>Cancel</button>
+            <button id="btnDisconnect" class="btn-disconnect" disabled>Disconnect</button>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats">
+            <div class="stat-card">
+                <div id="frameCount" class="stat-value">0</div>
+                <div class="stat-label">Frames Sent</div>
+            </div>
+            <div class="stat-card">
+                <div id="bytesSent" class="stat-value">0</div>
+                <div class="stat-label">Bytes Sent</div>
+            </div>
+            <div class="stat-card">
+                <div id="sampleRate" class="stat-value">16000</div>
+                <div class="stat-label">Sample Rate (Hz)</div>
+            </div>
+        </div>
+
+        <!-- Transcript Display -->
+        <div class="transcript" id="transcript">
+            <strong>Transcript:</strong><br>
+            <span id="transcriptText">Waiting for speech...</span>
+        </div>
+
+        <!-- Logs -->
+        <div class="logs" id="logs">
+            <div class="log-entry">Demo page loaded. Click "Connect" to start.</div>
+        </div>
+    </div>
+
+    <!-- Load our client library -->
+    <script src="/static/audio-client.js"></script>
+
+    <script>
+        // Initialize the audio streaming client
+        let client;
+
+        // DOM elements
+        const statusDiv = document.getElementById('status');
+        const btnConnect = document.getElementById('btnConnect');
+        const btnRecord = document.getElementById('btnRecord');
+        const btnStop = document.getElementById('btnStop');
+        const btnCancel = document.getElementById('btnCancel');
+        const btnDisconnect = document.getElementById('btnDisconnect');
+        const transcriptDiv = document.getElementById('transcript');
+        const transcriptText = document.getElementById('transcriptText');
+        const logsDiv = document.getElementById('logs');
+        const frameCountDiv = document.getElementById('frameCount');
+        const bytesSentDiv = document.getElementById('bytesSent');
+        const sampleRateDiv = document.getElementById('sampleRate');
+
+        // Initialize client when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            client = new AudioStreamingClient({
+                serverUrl: window.location.origin.replace('http', 'ws') + '/ws',
+
+                onConnected: () => {
+                    addLog('Connected to server successfully', 'success');
+                    updateStatus('connected', 'Connected');
+                    updateButtons(true, false, false, true, false);
+                },
+
+                onDisconnected: (event) => {
+                    addLog(`Disconnected: ${event.code} ${event.reason}`, 'info');
+                    updateStatus('disconnected', 'Disconnected');
+                    updateButtons(false, false, false, false, false);
+                },
+
+                onError: (error) => {
+                    addLog(`Error: ${error}`, 'error');
+                    updateStatus('disconnected', 'Error');
+                },
+
+                onPartialTranscript: (text) => {
+                    transcriptText.textContent = text;
+                    transcriptDiv.className = 'transcript partial';
+                    addLog(`Partial: ${text}`, 'info');
+                },
+
+                onFinalTranscript: (text, id) => {
+                    transcriptText.textContent = text;
+                    transcriptDiv.className = 'transcript final';
+                    addLog(`Final: ${text}`, 'success');
+                },
+
+                onInfo: (message) => {
+                    addLog(`Info: ${message}`, 'info');
+                }
+            });
+
+            // Update stats periodically
+            setInterval(updateStats, 1000);
+        });
+
+        // Button event handlers
+        btnConnect.addEventListener('click', async () => {
+            try {
+                await client.connect();
+            } catch (error) {
+                addLog(`Connection failed: ${error.message}`, 'error');
+            }
+        });
+
+        btnRecord.addEventListener('click', async () => {
+            try {
+                await client.startRecording();
+                updateButtons(true, true, true, true, true);
+                updateStatus('recording', 'Recording...');
+                addLog('Recording started', 'success');
+            } catch (error) {
+                addLog(`Failed to start recording: ${error.message}`, 'error');
+            }
+        });
+
+        btnStop.addEventListener('click', () => {
+            client.stopRecording();
+            updateButtons(true, false, false, true, false);
+            updateStatus('connected', 'Connected');
+            addLog('Recording stopped', 'info');
+        });
+
+        btnCancel.addEventListener('click', () => {
+            client.cancelRecording();
+            updateButtons(true, false, false, true, false);
+            updateStatus('connected', 'Connected');
+            addLog('Recording cancelled', 'info');
+        });
+
+        btnDisconnect.addEventListener('click', () => {
+            client.disconnect();
+        });
+
+        // Helper functions
+        function updateStatus(type, text) {
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = text;
+        }
+
+        function updateButtons(connected, recording, canStop, canDisconnect, canCancel = false) {
+            btnConnect.disabled = connected;
+            btnRecord.disabled = !connected || recording;
+            btnStop.disabled = !canStop;
+            btnCancel.disabled = !canCancel;  // Cancel button enabled when recording/processing
+            btnDisconnect.disabled = !canDisconnect;
+        }
+
+        function addLog(message, type = 'info') {
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+
+            // Keep only last 50 log entries
+            while (logsDiv.children.length > 50) {
+                logsDiv.removeChild(logsDiv.firstChild);
+            }
+        }
+
+        function updateStats() {
+            if (client) {
+                const status = client.getStatus();
+                frameCountDiv.textContent = status.frameCount.toLocaleString();
+                bytesSentDiv.textContent = status.totalBytesSent.toLocaleString();
+                sampleRateDiv.textContent = status.sampleRate.toLocaleString();
+            }
+        }
+
+        // Handle page visibility changes
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && client && client.isRecording) {
+                addLog('Page hidden - consider stopping recording', 'info');
+            }
+        });
+
+        // Handle page unload
+        window.addEventListener('beforeunload', () => {
+            if (client) {
+                client.disconnect();
+            }
+        });
+    </script>
+</body>
+</html>
