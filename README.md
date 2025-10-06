@@ -513,3 +513,77 @@ Quick checklist:
 - Integration tests for complete pipeline validation
 - Edge case testing for error conditions
 - Complete documentation with troubleshooting guides
+
+## Lean ASR Service (Minimal Mode)
+
+For lightweight transcription or rapid prototyping without LLM + TTS, a lean ASR-only FastAPI app exists under `service/`.
+
+### Why Use It?
+- Faster startup (skips LLM + TTS + phrase pipeline)
+- Lower resource footprint (only Whisper + simple VAD)
+- Simplified WebSocket contract (partial + final transcripts only)
+- Easier to integrate into existing systems needing just streaming ASR
+
+### Key Differences vs Full Pipeline
+| Aspect | Full Pipeline | Lean Service |
+|--------|---------------|--------------|
+| WebSocket Path | `/ws` (and `/ws2`) | `/ws` |
+| Messages Emitted | partial_transcript, final_transcript, llm_token, tts_chunk, metrics | partial_transcript, final_transcript, debug (optional) |
+| Finalization Triggers | VAD silence, explicit stop, max length | Same + inactivity safeguard |
+| Decode Strategy | Full incremental + phrase/LLM coupling | Sliding tail partial + async full decode on finalize |
+| Config Source | `backend/stream/config.py` | `service/config.py` |
+| Static UI | Reuses `public/` via `/` + `/static` | Same |
+
+### Running the Lean Service
+
+Use the helper script (auto venv, dependency install if needed, port conflict handling):
+
+```bash
+./run_lean.sh                 # default port 8100, model small-int8
+STREAM_DEBUG=true ./run_lean.sh   # enable verbose debug events
+PORT=8200 MODEL_WHISPER=base-int8 ./run_lean.sh
+RELOAD=1 ./run_lean.sh           # enable auto-reload (dev only)
+```
+
+Environment variables (mapped to settings):
+- `MODEL_WHISPER` -> `STREAM_MODEL_WHISPER` (default: small-int8)
+- `SAVE_DIR` -> `STREAM_SAVE_DIR` (final transcript persistence)
+- `STREAM_DEBUG=true` to emit structured `debug` events
+
+### WebSocket Flow (Lean)
+1. Client connects to `ws://host:8100/ws`
+2. Sends `{ "type": "start", "sample_rate": 16000 }`
+3. Streams 16-bit PCM mono frames (recommended: ~320ms chunks, 16000 Hz)
+4. Receives `partial_transcript` updates (filtered for low-info noise)
+5. Finalization occurs on: explicit `stop`, silence (VAD), inactivity timeout, or max duration
+6. Receives quick `final_transcript` (fast reuse of last partial) followed by upgraded final if async decode produces refinement
+
+### HTTP Transcription Endpoint
+```
+POST /transcribe  (multipart form field: file=<wav>)
+Response: { "transcript": "..." }
+```
+
+### Static Test UI
+Navigate to `http://localhost:8100/` after starting the lean service. Current capabilities:
+- Start / Stop streaming mic audio
+- View partial + final transcripts in console (UI panel coming soon)
+
+Planned incremental frontend improvements:
+- Client-side downsampling (48k → 16k) for consistent PCM payloads
+- Live event log panel (partial/final/debug)
+- WAV file upload form invoking `/transcribe`
+
+### Debug Events
+Enable with `STREAM_DEBUG=true`. Examples include inactivity triggers, finalize reasons, timing markers (`t_partial_first`, `t_finalize_start`, etc.). These are emitted as `{ "type": "debug", "event": "...", ... }` and are safe to ignore in production.
+
+### Troubleshooting
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Empty final transcript | Audio too short or silence-only | Verify PCM data; check sample rate 16000 mono 16-bit |
+| No partials | Partial interval too high / filtered | Lower `STREAM_PARTIAL_INTERVAL_MS` or relax filtering thresholds |
+| Port already in use | Previous uvicorn still running | Script auto-kills matching python/uvicorn on that port |
+| High latency on final | Large accumulated buffer | Shorter audio chunks (~320ms) and ensure model int8 variant |
+
+---
+If you later re-enable the full pipeline, both modes can coexist (e.g. full on 8000, lean on 8100) for comparative testing.
