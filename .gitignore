@@ -1,0 +1,51 @@
+# Python / Virtualenv
+.venv/
+.venv*/
+venv/
+ENV/
+.env
+.env.*
+*.py[cod]
+__pycache__/
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Logs / dumps
+*.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage*
+.pytest_cache/
+.mypy_cache/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+.venv-clean/
+stream_out/
+uvicorn.pid
+lean.pid
+
+# Node / frontend cache
+node_modules/
+
+# Caches
+.cache/
+
